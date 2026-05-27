@@ -1,0 +1,29 @@
+[project]
+name = "vitejs-assets-downloader"
+version = "0.1.0"
+description = "Download JS chunk assets from Vite.js powered websites"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "bs4>=0.0.2",
+    "curl-cffi>=0.15.0",
+    "jsbeautifier>=1.15.4",
+]
+
+[project.scripts]
+vitedl = "vitedl.cli:main"
+
+[tool.bumpversion]
+current_version = "0.1.0"
+
+[[tool.bumpversion.files]]
+filename = "vitedl/__init__.py"
+search = "__version__ = \"{current_version}\""
+replace = "__version__ = \"{new_version}\""
+
+[tool.setuptools.packages.find]
+include = ["vitedl", "vitedl.*"]
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
