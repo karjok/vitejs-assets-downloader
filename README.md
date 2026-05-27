@@ -18,7 +18,10 @@
 # ViteJS Assets Downloader
 
 Download all JavaScript chunk assets from Vite.js powered websites. Scrapes the `__vite__mapDeps` array embedded in the main entry script to discover and download every lazy-loaded JS chunk.
-[![asciicast](https://asciinema.org/a/1140328.svg)](https://asciinema.org/a/1140328)
+
+## Demo
+[![asciicast](https://asciinema.org/a/G8F0RxgOV3LKBRSv.svg)](https://asciinema.org/a/G8F0RxgOV3LKBRSv)
+
 ## Installation
 
 ```bash
