@@ -1,4 +1,5 @@
 <div align="center">
+  <img src="logo.png" alt="vitejs-assets-downloader" width=400>
   <br>
   <p>
     <picture>
