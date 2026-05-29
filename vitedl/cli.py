@@ -36,13 +36,16 @@ def main():
                         help="Output directory name (default: auto from hostname)")
     parser.add_argument("-b", "--beautify", action="store_true", default=False,
                         help="Beautify JS output")
+    parser.add_argument("--debug", action="store_true", default=False,
+                        help="Show debug info when site is not recognized as ViteJS")
     args = parser.parse_args()
 
-    with ViteJsAssetsDownloader(args.url) as dl:
+    with ViteJsAssetsDownloader(args.url, debug=args.debug) as dl:
         dl.download_js_files(
             output_dir=args.output_dir,
             beautify=args.beautify,
-            log_func=lambda msg: print(colorize(msg))
+            log_func=lambda msg: print(colorize(msg)),
+            debug=args.debug,
         )
 
 
