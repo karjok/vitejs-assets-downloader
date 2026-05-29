@@ -1,0 +1,152 @@
+diff --git a/vitedl/__init__.py b/vitedl/__init__.py
+index df6151f..49098d1 100644
+--- a/vitedl/__init__.py
++++ b/vitedl/__init__.py
+@@ -11,9 +11,11 @@ __version__ = "0.1.0"
+ 
+ 
+ class ViteJsAssetsDownloader:
+-    def __init__(self, target_url: str):
++    def __init__(self, target_url: str, debug: bool = False):
+         self.target_url = target_url
++        self.debug = debug
+         self._async_session: AsyncSession | None = None
++        self.error: str | None = None
+ 
+     def __enter__(self):
+         return self
+@@ -29,15 +31,23 @@ class ViteJsAssetsDownloader:
+         if self._async_session:
+             await self._async_session.close()
+ 
+-    async def _async_fetch(self, url: str) -> str:
+-        if self._async_session is None:
+-            async with AsyncSession(impersonate="chrome131") as s:
+-                response = await s.get(url)
+-                response.raise_for_status()
+-                return response.text
+-        response = await self._async_session.get(url)
+-        response.raise_for_status()
+-        return response.text
++    async def _async_fetch(self, url: str) -> str | None:
++        try:
++            if self._async_session is None:
++                async with AsyncSession(impersonate="chrome131") as s:
++                    response = await s.get(url)
++                    response.raise_for_status()
++                    self.error = None
++                    return response.text
++            response = await self._async_session.get(url)
++            response.raise_for_status()
++            self.error = None
++            return response.text
++        except Exception as e:
++            resp = getattr(e, 'response', None)
++            status = resp.status_code if resp is not None else None
++            self.error = f"HTTP {status}" if status else "connection_error"
++            return None
+ 
+     @staticmethod
+     def _parse_index_src(page_source: str) -> str | None:
+@@ -63,24 +73,39 @@ class ViteJsAssetsDownloader:
+         return sorted(set(js for js in json.loads(match.group()) if js.endswith(".js")))
+ 
+     async def _async_find_index_js(self) -> str | None:
+-        return self._parse_index_src(await self._async_fetch(self.target_url))
++        self.error = None
++        html = await self._async_fetch(self.target_url)
++        if html is None:
++            return None
++        result = self._parse_index_src(html)
++        if not result:
++            self.error = "no_index_script"
++        return result
+ 
+     async def _async_get_vite_mapDeps(self) -> str | None:
+         index_script = await self._async_find_index_js()
+         if not index_script:
+             return None
+-        return self._parse_mapDeps(
+-            await self._async_fetch(urljoin(self.target_url, index_script))
+-        )
++        js_code = await self._async_fetch(urljoin(self.target_url, index_script))
++        if js_code is None:
++            return None
++        result = self._parse_mapDeps(js_code)
++        if not result:
++            self.error = "no_mapDeps"
++        return result
+ 
+     async def _async_build_js_file_urls(self) -> list | None:
+         index_script = await self._async_find_index_js()
+         if not index_script:
+             return None
++        self.error = None
+         index_url = urljoin(self.target_url, index_script)
+         js_code = await self._async_fetch(index_url)
++        if js_code is None:
++            return None
+         mapDeps = self._parse_mapDeps(js_code)
+         if not mapDeps:
++            self.error = "no_mapDeps"
+             return None
+         js_files = self._extract_js_file_from_mapDeps_assets(mapDeps)
+         chunk_urls = [urljoin(self.target_url, js) for js in js_files]
+@@ -95,7 +120,8 @@ class ViteJsAssetsDownloader:
+     def _build_js_file_urls(self) -> list | None:
+         return asyncio.run(self._async_build_js_file_urls())
+ 
+-    def download_js_files(self, output_dir: str = None, beautify=False, max_concurrency=20, log_func=None):
++    def download_js_files(self, output_dir: str = None, beautify=False, max_concurrency=20, log_func=None, debug=False):
++        self.debug = debug
+         asyncio.run(self.download_js_files_async(output_dir, beautify, max_concurrency, log_func))
+ 
+     async def download_js_files_async(self, output_dir: str = None, beautify=False, max_concurrency=20, log_func=None):
+@@ -111,6 +137,24 @@ class ViteJsAssetsDownloader:
+         try:
+             js_file_urls = await self._async_build_js_file_urls() or []
+             if not js_file_urls:
++                if self.error and self.error.startswith("HTTP"):
++                    log(f"[ERROR] Target URL returned {self.error} — check if the URL is correct.")
++                elif self.error == "connection_error":
++                    log("[ERROR] Could not connect to the target URL.")
++                elif self.error == "no_index_script":
++                    log("[ERROR] No script tag with 'index' in src found on the page.")
++                elif self.error == "no_mapDeps":
++                    log("[ERROR] The site does not appear to be a ViteJS-powered app (no __vite__mapDeps found).")
++                else:
++                    log("[ERROR] Could not fetch target URL or no ViteJS assets found.")
++                if self.debug:
++                    try:
++                        async with AsyncSession(impersonate="chrome131") as s:
++                            r = await s.get(self.target_url)
++                            log(f"---[DEBUG] HTTP {r.status_code} for {self.target_url}---")
++                            log(r.text[:2000] + ("..." if len(r.text) > 2000 else ""))
++                    except Exception as e:
++                        log(f"---[DEBUG] Fetch failed: {e}---")
+                 return
+             os.makedirs(output_path, exist_ok=True)
+             semaphore = asyncio.Semaphore(max_concurrency)
+diff --git a/vitedl/cli.py b/vitedl/cli.py
+index c913211..7aa4144 100644
+--- a/vitedl/cli.py
++++ b/vitedl/cli.py
+@@ -36,13 +36,16 @@ def main():
+                         help="Output directory name (default: auto from hostname)")
+     parser.add_argument("-b", "--beautify", action="store_true", default=False,
+                         help="Beautify JS output")
++    parser.add_argument("--debug", action="store_true", default=False,
++                        help="Show debug info when site is not recognized as ViteJS")
+     args = parser.parse_args()
+ 
+-    with ViteJsAssetsDownloader(args.url) as dl:
++    with ViteJsAssetsDownloader(args.url, debug=args.debug) as dl:
+         dl.download_js_files(
+             output_dir=args.output_dir,
+             beautify=args.beautify,
+-            log_func=lambda msg: print(colorize(msg))
++            log_func=lambda msg: print(colorize(msg)),
++            debug=args.debug,
+         )
+ 
+ 

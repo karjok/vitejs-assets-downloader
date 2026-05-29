@@ -7,7 +7,7 @@ from curl_cffi import AsyncSession
 from bs4 import BeautifulSoup
 import jsbeautifier
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 
 class ViteJsAssetsDownloader:
